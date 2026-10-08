@@ -9,6 +9,8 @@ import {
 } from './motion';
 import type { Bezier, Curve, Spring } from './motion';
 
+import { curveProgress, readCurve } from './playback';
+
 type Mode = 'spring' | 'bezier';
 type Locale = 'en' | 'zh';
 // Preset thumbnails are static; keep numerical work outside the animation render loop.
@@ -26,69 +28,74 @@ const presetPaths = Object.fromEntries(
 );
 const words = {
   en: {
-    subtitle: 'Spring & Bézier timing',
-    title: 'Tune the feeling.',
-    desc: 'Compare response curves and export CSS or JavaScript.',
+    subtitle: 'Motion parameters',
     spring: 'Spring',
     bezier: 'Bézier',
-    configure: 'CONFIGURATION',
-    presets: 'START SOMEWHERE',
+    configure: 'Parameters',
+    presets: 'Presets',
     stiffness: 'Stiffness',
     damping: 'Damping',
     mass: 'Mass',
     duration: 'Duration',
-    settled: 'SETTLES IN',
-    time: 'DURATION',
-    overshoot: 'OVERSHOOT',
-    regime: 'DAMPING',
-    under: 'Under',
+    settled: 'Settles in',
+    time: 'Duration',
+    overshoot: 'Overshoot',
+    regime: 'Damping',
+    under: 'Underdamped',
     critical: 'Critical',
-    over: 'Over',
+    over: 'Overdamped',
     replay: 'Replay',
     loop: 'Loop',
-    preview: 'FEEL THE MOTION',
-    live: 'Live preview',
-    export: 'TAKE IT WITH YOU',
-    exportDesc: 'The same curve, ready for your interface.',
+    preview: 'Component preview',
+    export: 'Export current curve',
+    exportDesc:
+      'Translation timing for your own element. The preview component markup is not included.',
     copy: 'Copy code',
-    copied: 'Copied',
     download: 'Download',
-    source: '181 samples · zero dependencies at runtime',
-    foot: 'Position, timing, and the code between them.',
-    reduced: 'Reduced motion is on. Preview stays at its final position.',
+    source: '181 samples · no runtime dependency in the exported code',
+    reduced: 'Reduced motion is on. Both previews stay at their final positions.',
     capped: '12-second limit reached. Export snaps to its final position.',
-    fine: 'Fine-tune with arrow keys',
-    local: 'Runs entirely in your browser',
-    position: 'POSITION',
+    fine: 'Arrow keys adjust sliders.',
+    local: 'Calculated in your browser',
+    position: 'Position',
     default: 'Reset',
-    paused: 'At rest',
-    moving: 'In motion',
-    start: 'START',
-    end: 'REST',
+    paused: 'Finished',
+    moving: 'Playing',
     copiedMessage: 'Code copied to clipboard.',
     copyError: 'Clipboard unavailable. Download the file instead.',
     downloadMessage: 'File download started.',
     downloadError: 'Download unavailable. Select and copy the code below.',
-    numeric: 'Edit numeric value',
     type: 'Export format',
     snippet: 'Exported code',
-    status: 'Preview status',
-    now: 'TIME',
-    control: 'CONTROL POINTS',
-    help: 'Positive damping dissipates energy. Less damping means more bounce.',
+    now: 'Time',
+    control: 'Control points',
+    help: 'Lower damping increases bounce. Mass and stiffness also change the settling time.',
+    current: 'Current',
+    reference: 'Reference',
+    pin: 'Keep as reference',
+    clear: 'Clear reference',
+    comparison: 'Both start together and keep their own durations.',
+    choose: 'Preview component',
+    drawer: 'Side panel',
+    tabs: 'Tab indicator',
+    toast: 'Toast',
+    empty: 'Keep a reference, then change a parameter or preset to compare the two motions.',
+    response: 'Response curve',
+    analysis: 'Use the graph to inspect overshoot and settling.',
+    custom: 'Custom',
+    normal:
+      'Curves are overlaid at normalized time (0–100%); previews above use elapsed milliseconds.',
   },
   zh: {
-    subtitle: '彈簧與貝茲時間曲線',
-    title: '調出對的節奏。',
-    desc: '比較響應曲線，匯出 CSS 或 JavaScript。',
+    subtitle: '動畫參數比較',
     spring: '彈簧',
     bezier: '貝茲',
-    configure: '參數設定',
-    presets: '從這裡開始',
+    configure: '參數',
+    presets: '預設值',
     stiffness: '剛度',
     damping: '阻尼',
     mass: '質量',
-    duration: '時間',
+    duration: '持續時間',
     settled: '穩定時間',
     time: '持續時間',
     overshoot: '超越幅度',
@@ -98,36 +105,43 @@ const words = {
     over: '過阻尼',
     replay: '重播',
     loop: '循環',
-    preview: '感受動態',
-    live: '即時預覽',
-    export: '帶走這條曲線',
-    exportDesc: '與預覽相同的曲線，可直接用在介面。',
+    preview: '元件預覽',
+    export: '匯出目前曲線',
+    exportDesc: '匯出供其他元素使用的位移時間曲線，不含此處的元件樣式。',
     copy: '複製程式碼',
-    copied: '已複製',
     download: '下載',
-    source: '181 個取樣點 · 執行時不需外部套件',
-    foot: '從位置與時間，到實際程式碼。',
-    reduced: '已啟用減少動態效果；預覽停在終點。',
-    capped: '已達 12 秒上限；匯出會在終點吸附至靜止位置。',
-    fine: '方向鍵可微調',
-    local: '完全在瀏覽器內執行',
+    source: '181 個取樣點 · 匯出程式碼不需執行時套件',
+    reduced: '已啟用減少動態效果，兩個預覽都停在終點。',
+    capped: '已達 12 秒上限，匯出會在終點吸附至靜止位置。',
+    fine: '方向鍵可調整滑桿。',
+    local: '在瀏覽器內計算',
     position: '位置',
     default: '重設',
-    paused: '已靜止',
-    moving: '移動中',
-    start: '起點',
-    end: '終點',
+    paused: '已完成',
+    moving: '播放中',
     copiedMessage: '已複製程式碼。',
     copyError: '無法存取剪貼簿，請下載檔案。',
     downloadMessage: '已開始下載檔案。',
     downloadError: '無法下載，請選取下方程式碼複製。',
-    numeric: '編輯數值',
     type: '匯出格式',
     snippet: '匯出程式碼',
-    status: '預覽狀態',
     now: '時間',
     control: '控制點',
-    help: '阻尼會消耗能量；數值越小，彈跳越明顯。',
+    help: '阻尼較小時，彈跳較明顯。質量與剛度也會影響穩定時間。',
+    current: '目前',
+    reference: '參考',
+    pin: '保留為參考',
+    clear: '清除參考',
+    comparison: '兩者同時開始，各自使用原本的持續時間。',
+    choose: '預覽元件',
+    drawer: '側邊面板',
+    tabs: '頁籤指示',
+    toast: '提示訊息',
+    empty: '先保留一組參考，再調整參數或切換預設值，就能比較兩者的動態。',
+    response: '響應曲線',
+    analysis: '用曲線檢查超越幅度與穩定時間。',
+    custom: '自訂',
+    normal: '曲線以正規化時間（0–100%）疊合；上方元件則以實際毫秒數播放。',
   },
 };
 function Icon({ name }: { name: 'replay' | 'copy' | 'download' | 'arrow' }) {
@@ -201,7 +215,7 @@ function Slider({
         <label htmlFor={id}>{label}</label>
         <div className={`number-box ${invalid ? 'invalid' : ''}`}>
           <input
-            aria-label={`${label} value`}
+            aria-label={label}
             aria-invalid={invalid}
             aria-describedby={invalid ? `${id}-error` : undefined}
             type="number"
@@ -248,15 +262,6 @@ function Slider({
     </div>
   );
 }
-function readCurve(curve: Curve, t: number) {
-  const index = Math.min(curve.points.length - 1, Math.max(0, t) * (curve.points.length - 1));
-  const left = Math.floor(index),
-    right = Math.min(curve.points.length - 1, left + 1);
-  return (
-    curve.points[left].value +
-    (curve.points[right].value - curve.points[left].value) * (index - left)
-  );
-}
 function Chart({
   curve,
   time,
@@ -270,11 +275,11 @@ function Chart({
 }) {
   const w = words[locale];
   const width = 850,
-    height = 350,
+    height = 250,
     left = 52,
-    top = 38,
+    top = 27,
     plotWidth = 753,
-    plotHeight = 248;
+    plotHeight = 164;
   const allPoints = [...curve.points, ...(pinned?.curve.points ?? [])];
   const lower = Math.min(-0.1, ...allPoints.map((p) => p.value - 0.08));
   const upper = Math.max(1.2, ...allPoints.map((p) => p.value + 0.15));
@@ -294,17 +299,11 @@ function Chart({
       role="img"
       aria-label={`${locale === 'en' ? 'Position versus time curve' : '位置與時間曲線'}; ${curve.duration} ms; ${w.overshoot} ${(curve.overshoot * 100).toFixed(1)}%`}
     >
-      <defs>
-        <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-          <stop stopColor="#d9be85" stopOpacity=".13" />
-          <stop offset="1" stopColor="#d9be85" stopOpacity="0" />
-        </linearGradient>
-      </defs>
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
         <g key={t}>
           <line x1={x(t)} x2={x(t)} y1={top} y2={top + plotHeight} className="grid-line" />
           <text x={x(t)} y={top + plotHeight + 27} textAnchor="middle" className="axis-text">
-            {Math.round(t * curve.duration)}
+            {pinned ? `${Math.round(t * 100)}%` : Math.round(t * curve.duration)}
           </text>
         </g>
       ))}
@@ -326,16 +325,21 @@ function Chart({
         {w.position}
       </text>
       <text x={left + plotWidth} y={height - 12} textAnchor="end" className="axis-label">
-        {w.now} / ms
+        {pinned ? (locale === 'en' ? 'Normalized time' : '正規化時間') : `${w.now} / ms`}
       </text>
       <text x={left + plotWidth - 4} y={y(1) - 10} textAnchor="end" className="target-label">
         {locale === 'en' ? 'TARGET' : '目標位置'}
       </text>
-      <path d={pinnedPath} stroke="#9aab94" strokeWidth="1.8" strokeDasharray="5 5" fill="none" />
-      <path d={`${path} L${x(1)},${y(0)} L${x(0)},${y(0)} Z`} fill="url(#fill)" />
+      <path
+        d={pinnedPath}
+        stroke="var(--reference)"
+        strokeWidth="1.8"
+        strokeDasharray="5 5"
+        fill="none"
+      />
       <path
         d={path}
-        stroke="#d9be85"
+        stroke="var(--accent)"
         strokeWidth="2.7"
         fill="none"
         strokeLinecap="round"
@@ -346,24 +350,132 @@ function Chart({
         x2={x(time)}
         y1={top}
         y2={top + plotHeight}
-        stroke="#d9be85"
+        stroke="var(--accent)"
         strokeOpacity=".25"
         strokeDasharray="3 5"
       />
-      <circle cx={x(time)} cy={y(current)} r="9" fill="#d9be85" opacity=".12" />
+      <circle cx={x(time)} cy={y(current)} r="9" fill="var(--accent)" opacity=".12" />
       <circle
         cx={x(time)}
         cy={y(current)}
         r="4.5"
-        fill="#efdab1"
-        stroke="#1b201f"
+        fill="var(--accent)"
+        stroke="#242320"
         strokeWidth="2"
       />
     </svg>
   );
 }
+type PreviewKind = 'drawer' | 'tabs' | 'toast';
+function ComponentPreview({
+  kind,
+  curve,
+  progress,
+  locale,
+  label,
+  name,
+  reference = false,
+}: {
+  kind: PreviewKind;
+  curve: Curve;
+  progress: number;
+  locale: Locale;
+  label: string;
+  name: string;
+  reference?: boolean;
+}) {
+  const value = readCurve(curve, progress);
+  const w = words[locale];
+  return (
+    <figure className={`component-preview ${reference ? 'reference-preview' : ''}`}>
+      <figcaption>
+        <div>
+          <span className="curve-key" />
+          {label}
+          <strong>{name}</strong>
+        </div>
+        <span>{curve.duration} ms</span>
+      </figcaption>
+      <div className={`component-stage stage-${kind}`} aria-hidden="true">
+        {kind === 'drawer' ? (
+          <>
+            <div className="mock-app">
+              <span className="mock-heading" />
+              {[0, 1, 2].map((i) => (
+                <div className="mock-row" key={i}>
+                  <i />
+                  <span />
+                </div>
+              ))}
+            </div>
+            <div
+              className="drawer-component"
+              style={{ transform: `translateX(${(1 - value) * 108}%)` }}
+            >
+              <div className="drawer-title">
+                {locale === 'en' ? 'Details' : '詳細資料'}
+                <span>×</span>
+              </div>
+              <div className="drawer-content">
+                <span>{locale === 'en' ? 'Name' : '名稱'}</span>
+                <i />
+                <span>{locale === 'en' ? 'Description' : '說明'}</span>
+                <i className="tall" />
+              </div>
+            </div>
+          </>
+        ) : kind === 'tabs' ? (
+          <div className="tabs-component">
+            <div className="mock-tabs">
+              <span>{locale === 'en' ? 'Overview' : '總覽'}</span>
+              <span>{locale === 'en' ? 'Activity' : '動態'}</span>
+              <span>{locale === 'en' ? 'Settings' : '設定'}</span>
+              <i style={{ transform: `translateX(${value * 100}%)` }} />
+            </div>
+            <div className="tab-content">
+              <i />
+              <i />
+              <i />
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mock-app">
+              <span className="mock-heading" />
+              {[0, 1, 2].map((i) => (
+                <div className="mock-row" key={i}>
+                  <i />
+                  <span />
+                </div>
+              ))}
+            </div>
+            <div
+              className="toast-component"
+              style={{ transform: `translateX(${(1 - value) * 130}%)` }}
+            >
+              <span className="toast-check">✓</span>
+              <div>
+                {locale === 'en' ? 'Changes saved' : '已儲存變更'}
+                <small>
+                  {locale === 'en' ? 'Your changes are up to date.' : '所有變更已更新。'}
+                </small>
+              </div>
+              <span className="toast-close">×</span>
+            </div>
+          </>
+        )}
+      </div>
+      <div className="component-progress">
+        <span>{progress < 1 ? w.moving : w.paused}</span>
+        <span>
+          {Math.round(progress * curve.duration)} / {curve.duration} ms
+        </span>
+      </div>
+    </figure>
+  );
+}
 export default function App() {
-  const [locale, setLocale] = useState<Locale>('en');
+  const [locale, setLocale] = useState<Locale>('zh');
   const w = words[locale];
   const [mode, setMode] = useState<Mode>('spring');
   const [spring, setSpring] = useState<Spring>(SPRING_PRESETS[0]);
@@ -371,6 +483,7 @@ export default function App() {
   const [format, setFormat] = useState<'css' | 'js'>('css');
   const [pinned, setPinned] = useState<{ curve: Curve; name: string } | null>(null);
   const [time, setTime] = useState(0);
+  const [previewKind, setPreviewKind] = useState<PreviewKind>('drawer');
   const [loop, setLoop] = useState(true);
   const [run, setRun] = useState(0);
   const [reduced, setReduced] = useState(
@@ -387,6 +500,12 @@ export default function App() {
       format === 'css' ? exportCSS(curve, mode === 'bezier' ? bezier : undefined) : exportJS(curve),
     [format, curve, mode, bezier],
   );
+  const playbackDuration = Math.max(curve.duration, pinned?.curve.duration ?? 0);
+  const elapsed = time * playbackDuration;
+  const currentProgress = reduced ? 1 : curveProgress(elapsed, curve.duration);
+  const referenceProgress = reduced
+    ? 1
+    : curveProgress(elapsed, pinned?.curve.duration ?? curve.duration);
   useEffect(() => {
     const media = matchMedia('(prefers-reduced-motion: reduce)');
     const change = () => setReduced(media.matches);
@@ -401,6 +520,7 @@ export default function App() {
       setTime(1);
       return;
     }
+    setTime(0);
     let frame = 0;
     let start: number | null = null;
     let pausedAt: number | null = null;
@@ -416,15 +536,15 @@ export default function App() {
       }
       start ??= now;
       const elapsed = now - start;
-      setTime(Math.min(1, elapsed / curve.duration));
-      if (elapsed < curve.duration || loop) {
-        if (elapsed > curve.duration + 1100) start = now;
+      setTime(Math.min(1, elapsed / playbackDuration));
+      if (elapsed < playbackDuration || loop) {
+        if (elapsed > playbackDuration + 1100) start = now;
         frame = requestAnimationFrame(tick);
       }
     }
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [curve, loop, run, reduced]);
+  }, [curve, loop, run, reduced, pinned, playbackDuration]);
   useEffect(
     () => () => {
       if (feedbackTimer.current) clearTimeout(feedbackTimer.current);
@@ -479,195 +599,46 @@ export default function App() {
             p.y2 === bezier.y2 &&
             p.duration === bezier.duration,
         )?.name;
+  const currentName = selected ?? w.custom;
+  function toggleReference() {
+    setPinned(pinned ? null : { curve, name: currentName });
+    setRun((r) => r + 1);
+  }
   return (
     <div className="app-shell">
       <header className="masthead">
-        <a className="brand" href="#" aria-label="Motionbench home">
-          <svg viewBox="0 0 34 27" width="33" height="27" fill="none" aria-hidden="true">
-            <path d="M1 22 9 5l7 17L25 5l8 17" stroke="currentColor" strokeWidth="2.5" />
-            <circle cx="25" cy="5" r="3.2" fill="currentColor" />
-          </svg>
-          <span>
-            motionbench<span className="brand-period">.</span>
-          </span>
+        <a className="brand" href="#" aria-label="Motionbench">
+          Motionbench
         </a>
-        <div className="masthead-center">
-          <span className="status-dot" />
-          {w.subtitle}
-        </div>
-        <button
-          className="locale-button"
-          onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
-          aria-label={locale === 'en' ? '切換繁體中文' : 'Switch to English'}
-        >
-          {locale === 'en' ? '繁中' : 'EN'}
-          <span>↗</span>
-        </button>
+        <h1>{w.subtitle}</h1>
+        <nav>
+          <a href="https://github.com/Miiduoa/motionbench" target="_blank" rel="noreferrer">
+            GitHub ↗
+          </a>
+          <button
+            className="locale-button"
+            onClick={() => setLocale(locale === 'en' ? 'zh' : 'en')}
+            aria-label={locale === 'en' ? '切換繁體中文' : 'Switch to English'}
+          >
+            {locale === 'en' ? '繁體中文' : 'English'}
+          </button>
+        </nav>
       </header>
       <main>
-        <div className="intro">
-          <div>
-            <div className="eyebrow">
-              THE MOTION WORKBENCH <span> / 001</span>
-            </div>
-            <h1>{w.title}</h1>
-            <p>{w.desc}</p>
-          </div>
-          <div
-            className="mode-switch"
-            role="group"
-            aria-label={locale === 'en' ? 'Curve model' : '曲線模型'}
-          >
-            <button aria-pressed={mode === 'spring'} onClick={() => setMode('spring')}>
-              <span className="model-icon">∿</span>
-              {w.spring}
-            </button>
-            <button aria-pressed={mode === 'bezier'} onClick={() => setMode('bezier')}>
-              <span className="model-icon">⌁</span>
-              {w.bezier}
-            </button>
-          </div>
-        </div>
         <div className="workbench">
-          <section
-            className="visual-panel"
-            aria-label={locale === 'en' ? 'Motion visualization' : '動態視覺化'}
-          >
-            <div className="chart-top">
-              <div className="section-label">
-                <span className="index">01</span>
-                {locale === 'en' ? 'THE CURVE' : '動態曲線'}
-              </div>
-              <span className="precision">
-                <span className="mini-cross">＋</span>
-                {mode === 'spring' ? 'mẍ + cẋ + k(x−1) = 0' : 'B(t) = (1−t)³P₀ + … + t³P₃'}
-              </span>
-            </div>
-            <div className="metrics">
-              <div>
-                <span>{mode === 'spring' ? w.settled : w.time}</span>
-                <strong>
-                  {curve.duration}
-                  <small>ms</small>
-                </strong>
-              </div>
-              <div>
-                <span>{w.overshoot}</span>
-                <strong>
-                  {(curve.overshoot * 100).toFixed(1)}
-                  <small>%</small>
-                </strong>
-              </div>
-              <div className="regime-metric">
-                <span>{mode === 'spring' ? w.regime : w.control}</span>
-                <strong className="regime">
-                  {mode === 'spring' ? regime : 'Cubic'}
-                  <small>{mode === 'spring' ? `ζ ${z.toFixed(2)}` : '4 points'}</small>
-                </strong>
-              </div>
-            </div>
-            <Chart curve={curve} time={time} locale={locale} pinned={pinned} />
-            <div className="chart-legend">
-              <span>
-                <i className="legend-line" />
-                {mode === 'spring' ? w.spring : w.bezier} {locale === 'en' ? 'response' : '響應'}
-              </span>
-              <span>
-                <i className="legend-dash" />
-                {locale === 'en' ? 'Resting position' : '靜止位置'}
-              </span>
-              <button
-                className="pin-button"
-                onClick={() =>
-                  setPinned(
-                    pinned
-                      ? null
-                      : {
-                          curve,
-                          name: selected ?? (mode === 'spring' ? 'Custom spring' : 'Custom Bézier'),
-                        },
-                  )
-                }
-              >
-                {pinned
-                  ? locale === 'en'
-                    ? '× Clear reference'
-                    : '× 清除參考'
-                  : locale === 'en'
-                    ? '+ Pin to compare'
-                    : '+ 固定並比較'}
+          <aside className="control-panel" aria-label={w.configure}>
+            <div
+              className="mode-switch"
+              role="group"
+              aria-label={locale === 'en' ? 'Curve model' : '曲線模型'}
+            >
+              <button aria-pressed={mode === 'spring'} onClick={() => setMode('spring')}>
+                {w.spring}
+              </button>
+              <button aria-pressed={mode === 'bezier'} onClick={() => setMode('bezier')}>
+                {w.bezier}
               </button>
             </div>
-            {pinned && (
-              <p className="comparison-note">
-                {locale === 'en' ? 'Reference' : '參考'}: {pinned.name} · {pinned.curve.duration} ms{' '}
-                <span>
-                  {' '}
-                  /{' '}
-                  {locale === 'en'
-                    ? 'overlaid at normalized time (0–100%)'
-                    : '以正規化時間（0–100%）疊合比較'}
-                </span>
-              </p>
-            )}
-            <div className="preview">
-              <div className="preview-top">
-                <div className="section-label">
-                  <span className="index">02</span>
-                  {w.preview}
-                </div>
-                <div className="playback-controls">
-                  <label className="loop-toggle">
-                    <input
-                      type="checkbox"
-                      checked={loop}
-                      disabled={reduced}
-                      onChange={(e) => setLoop(e.target.checked)}
-                    />
-                    <span className="toggle-track" />
-                    {w.loop}
-                  </label>
-                  <button
-                    className="replay-button"
-                    disabled={reduced}
-                    onClick={() => setRun((r) => r + 1)}
-                  >
-                    <Icon name="replay" />
-                    {w.replay}
-                  </button>
-                </div>
-              </div>
-              <div className="motion-track">
-                <div className="track-line" />
-                <div className="start-mark" />
-                <div className="end-mark" />
-                <div
-                  className="motion-object"
-                  style={{ left: `${12 + readCurve(curve, time) * 63}%` }}
-                  aria-hidden="true"
-                >
-                  <svg viewBox="0 0 25 25" width="25" height="25" fill="none">
-                    <path d="M4 18 9 7l4 11 5-11 4 11" stroke="currentColor" strokeWidth="1.7" />
-                  </svg>
-                </div>
-                <span className="track-start">{w.start}</span>
-                <span className="track-end">{w.end}</span>
-              </div>
-              <div className="preview-bottom">
-                <span className={`preview-status ${time < 1 ? 'active' : ''}`}>
-                  <i />
-                  {time < 1 ? w.moving : w.paused}
-                </span>
-                <span>
-                  {Math.round(time * curve.duration)}{' '}
-                  <span className="muted">/ {curve.duration} ms</span>
-                </span>
-              </div>
-              {reduced && <p className="notice">{w.reduced}</p>}
-              {curve.capped && <p className="notice">{w.capped}</p>}
-            </div>
-          </section>
-          <aside className="control-panel">
             <div className="control-heading">
               <span className="section-label">{w.configure}</span>
               <button
@@ -743,11 +714,8 @@ export default function App() {
               </p>
             </div>
             <div className="presets">
-              <div className="section-label">
-                {w.presets}
-                <span className="muted">04</span>
-              </div>
-              {(mode === 'spring' ? SPRING_PRESETS : BEZIER_PRESETS).map((p, i) => (
+              <div className="section-label">{w.presets}</div>
+              {(mode === 'spring' ? SPRING_PRESETS : BEZIER_PRESETS).map((p) => (
                 <button
                   className={`preset ${selected === p.name ? 'selected' : ''}`}
                   key={p.name}
@@ -757,10 +725,13 @@ export default function App() {
                     else setBezier(p);
                   }}
                 >
-                  <span className="preset-number">0{i + 1}</span>
                   <span>
                     <strong>{p.name}</strong>
-                    <small>{p.note}</small>
+                    <small>
+                      {'stiffness' in p
+                        ? `k ${p.stiffness} · c ${p.damping} · m ${p.mass}`
+                        : `${p.x1}, ${p.y1}, ${p.x2}, ${p.y2}`}
+                    </small>
                   </span>
                   <svg viewBox="0 0 56 25" width="56" height="25" aria-hidden="true">
                     <path
@@ -779,11 +750,142 @@ export default function App() {
               {w.fine}
             </p>
           </aside>
+          <section className="visual-panel" aria-label={w.preview}>
+            <div className="preview-toolbar">
+              <h2>{w.preview}</h2>
+              <div className="playback-controls">
+                <label className="loop-toggle">
+                  <input
+                    type="checkbox"
+                    checked={loop}
+                    disabled={reduced}
+                    onChange={(e) => setLoop(e.target.checked)}
+                  />
+                  {w.loop}
+                </label>
+                <button
+                  className="replay-button"
+                  disabled={reduced}
+                  onClick={() => setRun((r) => r + 1)}
+                >
+                  <Icon name="replay" />
+                  {w.replay}
+                </button>
+              </div>
+            </div>
+            <div className="component-picker" role="group" aria-label={w.choose}>
+              {(['drawer', 'tabs', 'toast'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  aria-pressed={previewKind === kind}
+                  onClick={() => {
+                    setPreviewKind(kind);
+                    setRun((r) => r + 1);
+                  }}
+                >
+                  {w[kind]}
+                </button>
+              ))}
+            </div>
+            <div className={`comparison-stage ${pinned ? 'has-reference' : ''}`}>
+              <ComponentPreview
+                kind={previewKind}
+                curve={curve}
+                progress={currentProgress}
+                locale={locale}
+                label={w.current}
+                name={currentName}
+              />
+              {pinned ? (
+                <ComponentPreview
+                  kind={previewKind}
+                  curve={pinned.curve}
+                  progress={referenceProgress}
+                  locale={locale}
+                  label={w.reference}
+                  name={pinned.name}
+                  reference
+                />
+              ) : (
+                <div className="reference-placeholder">
+                  <p>{w.empty}</p>
+                  <button className="pin-button" onClick={toggleReference}>
+                    {w.pin}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="comparison-toolbar">
+              <p>
+                {pinned
+                  ? w.comparison
+                  : locale === 'en'
+                    ? 'Change a parameter to replay the component.'
+                    : '調整參數後，元件會重新播放。'}
+              </p>
+              {pinned && (
+                <button className="text-button" onClick={toggleReference}>
+                  {w.clear}
+                </button>
+              )}
+            </div>
+            {reduced && (
+              <p className="notice" role="status">
+                {w.reduced}
+              </p>
+            )}
+            {(curve.capped || pinned?.curve.capped) && <p className="notice">{w.capped}</p>}
+            <div className="metrics">
+              <span>
+                {mode === 'spring' ? w.settled : w.time}
+                <strong>
+                  {curve.duration} <small>ms</small>
+                </strong>
+              </span>
+              <span>
+                {w.overshoot}
+                <strong>
+                  {(curve.overshoot * 100).toFixed(1)} <small>%</small>
+                </strong>
+              </span>
+              <span>
+                {mode === 'spring' ? w.regime : w.control}
+                <strong>
+                  {mode === 'spring'
+                    ? `${regime} · ζ ${z.toFixed(2)}`
+                    : `(${bezier.x1}, ${bezier.y1}) (${bezier.x2}, ${bezier.y2})`}
+                </strong>
+              </span>
+            </div>
+            <section className="curve-section" aria-labelledby="curve-heading">
+              <div className="chart-top">
+                <h2 id="curve-heading">{w.response}</h2>
+                <span>{w.analysis}</span>
+              </div>
+              <Chart curve={curve} time={currentProgress} locale={locale} pinned={pinned} />
+              <div className="chart-legend">
+                <span>
+                  <i className="legend-line" />
+                  {w.current}: {currentName} · {curve.duration} ms
+                </span>
+                {pinned && (
+                  <span>
+                    <i className="legend-reference" />
+                    {w.reference}: {pinned.name} · {pinned.curve.duration} ms
+                  </span>
+                )}
+                <span>
+                  <i className="legend-dash" />
+                  {locale === 'en' ? 'Target position' : '目標位置'}
+                </span>
+              </div>
+              {pinned && <p className="comparison-note">{w.normal}</p>}
+            </section>
+          </section>
         </div>
         <section className="export-panel" aria-labelledby="export-heading">
           <div className="export-description">
             <div className="section-label">
-              <span className="index">03</span>
               <h2 id="export-heading">{w.export}</h2>
             </div>
             <p>{w.exportDesc}</p>
@@ -838,13 +940,11 @@ export default function App() {
         </section>
       </main>
       <footer>
-        <span>{w.foot}</span>
+        <span>{w.local}</span>
         <span>
-          <i className="status-dot" />
-          {w.local}
-        </span>
-        <span className="version">
-          v0.1 <span>↗</span>
+          {locale === 'en'
+            ? 'One-dimensional translation, with zero initial velocity.'
+            : '單一方向位移，初始速度為零。'}
         </span>
       </footer>
     </div>
